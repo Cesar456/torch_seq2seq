@@ -1,8 +1,5 @@
 import re
 
-SOS_token = 0
-EOS_token = 1
-
 
 class Lang:
     def __init__(self, name):
@@ -10,7 +7,6 @@ class Lang:
         self.word2index = {}
         self.word2count = {}
         self.index2word = {0: "SOS", 1: "EOS"}
-        # Count SOS and EOS
         self.n_words = 2
 
     def add_sentence(self, sentence):
@@ -29,7 +25,6 @@ class Lang:
 
 def normalize_string(s):
     s = re.sub(r"([.!?])", r" \1", s)
-    # s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
     return s
 
 
@@ -44,7 +39,13 @@ def get_pair_data(dir_path, is_train=True):
     out_lines = [normalize_string(line.strip()) for line in out_lines]
 
     pairs = list(zip(in_lines, out_lines))
-    return pairs
+
+    input_lang = Lang("in")
+    output_lang = Lang("out")
+    for pair in pairs:
+        input_lang.add_sentence(pair[0])
+        output_lang.add_sentence(pair[1])
+    return input_lang, output_lang, pairs
 
 
 if __name__ == '__main__':
