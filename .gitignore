@@ -1,0 +1,6 @@
+*.pyc
+data/
+output/
+output_*/
+tmp/
+.idea/
