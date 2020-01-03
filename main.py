@@ -1,6 +1,3 @@
-# 参考链接：
-# https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
-
 import model
 import data_util
 import torch
