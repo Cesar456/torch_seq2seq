@@ -1,5 +1,5 @@
 import re
-
+import os
 
 class Lang:
     def __init__(self, name):
@@ -31,10 +31,8 @@ def normalize_string(s):
 def get_pair_data(dir_path, is_train=True):
     in_file_name = "in.txt"
     out_file_name = "out.txt"
-    in_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{in_file_name}",
-                    encoding='utf-8').readlines()
-    out_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{out_file_name}",
-                     encoding='utf-8').readlines()
+    in_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{in_file_name}", encoding='utf-8').readlines()
+    out_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{out_file_name}", encoding='utf-8').readlines()
     in_lines = [normalize_string(line.strip()) for line in in_lines]
     out_lines = [normalize_string(line.strip()) for line in out_lines]
 

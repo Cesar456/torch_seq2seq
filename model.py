@@ -9,6 +9,7 @@ class EncoderRNN(nn.Module):
     """
     参考链接：https://zhuanlan.zhihu.com/p/35955689
     """
+
     def __init__(self, input_size, hidden_size):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
@@ -66,8 +67,7 @@ class AttnDecoderRNN(nn.Module):
         embedded = self.embedding(inputs).view(1, 1, -1)
         embedded = self.dropout(embedded)
 
-        attn_weights = F.softmax(
-            self.attn(torch.cat((embedded[0], hidden[0]), 1)), dim=1)
+        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)), dim=1)
         attn_applied = torch.bmm(attn_weights.unsqueeze(0),
                                  encoder_outputs.unsqueeze(0))
 
