@@ -1,12 +1,18 @@
 import re
-import os
+from torch.utils.data import Dataset
+from tqdm import tqdm
+import torch
+
+SOS_token = 0
+EOS_token = 1
+
 
 class Lang:
     def __init__(self, name):
         self.name = name
         self.word2index = {}
         self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS"}
+        self.index2word = {SOS_token: "SOS", EOS_token: "EOS"}
         self.n_words = 2
 
     def add_sentence(self, sentence):
@@ -21,6 +27,32 @@ class Lang:
             self.n_words += 1
         else:
             self.word2count[word] += 1
+
+
+class SentenceDataSet(Dataset):
+    def __init__(self, dir_path):
+        self.input_lang, self.output_lang, self.sentence_pairs = get_pair_data(dir_path, True)
+        self.tensors = [tensors_from_pair(self.input_lang, self.output_lang, pair) for pair in self.sentence_pairs]
+        self.input_tensors = torch.nn.utils.rnn.pad_sequence([t[0] for t in self.tensors])
+        self.output_tensors = torch.nn.utils.rnn.pad_sequence([t[1] for t in self.tensors])
+
+    def __len__(self):
+        return len(self.tensors)
+
+    def __getitem__(self, item):
+        return self.tensors[item]
+
+
+def tensor_from_sentence(lang, sentence):
+    indexes = [lang.word2index[word] for word in sentence.split(' ')]
+    indexes.append(EOS_token)
+    return torch.tensor(indexes, dtype=torch.long).view(-1, 1)
+
+
+def tensors_from_pair(input_lang, output_lang, pair):
+    input_tensor = tensor_from_sentence(input_lang, pair[0])
+    target_tensor = tensor_from_sentence(output_lang, pair[1])
+    return input_tensor, target_tensor
 
 
 def normalize_string(s):
@@ -40,7 +72,7 @@ def get_pair_data(dir_path, is_train=True):
 
     input_lang = Lang("in")
     output_lang = Lang("out")
-    for pair in pairs:
+    for pair in tqdm(pairs):
         input_lang.add_sentence(pair[0])
         output_lang.add_sentence(pair[1])
     return input_lang, output_lang, pairs

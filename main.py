@@ -1,6 +1,4 @@
-import os
 import logging
-import time
 import model
 import data_util
 import torch
@@ -8,30 +6,16 @@ import random
 from tqdm import tqdm
 from torch import nn
 from torch import optim
+from torch.utils.data import DataLoader
 from utils import show_plot
+
+torch.cuda.empty_cache()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-SOS_token = 0
-EOS_token = 1
-
 dir_path = "./data/couplet"
 teacher_forcing_ratio = 0.5
-
-input_lang, output_lang, sentence_pairs = data_util.get_pair_data(dir_path, True)
-
-
-def tensor_from_sentence(lang, sentence):
-    indexes = [lang.word2index[word] for word in sentence.split(' ')]
-    indexes.append(EOS_token)
-    return torch.tensor(indexes, dtype=torch.long, device=model.device).view(-1, 1)
-
-
-def tensors_from_pair(pair):
-    input_tensor = tensor_from_sentence(input_lang, pair[0])
-    target_tensor = tensor_from_sentence(output_lang, pair[1])
-    return input_tensor, target_tensor
 
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
@@ -43,10 +27,8 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 
     input_length = input_tensor.size(0)
     target_length = target_tensor.size(0)
-
     encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=model.device)
-
-    loss = 0
+    loss = torch.tensor(0.0).to(model.device)
 
     for ei in range(input_length):
         encoder_output, encoder_hidden = encoder(input_tensor[ei], encoder_hidden)
@@ -59,17 +41,15 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     if use_teacher_forcing:
         for di in range(target_length):
             decoder_output, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_hidden, encoder_outputs)
-            loss = torch.sum(loss, criterion(decoder_output, target_tensor[di]))
-            # Teacher forcing
+            loss += criterion(decoder_output, target_tensor[di])
             decoder_input = target_tensor[di]
 
     else:
         for di in range(target_length):
             decoder_output, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_hidden, encoder_outputs)
             top_v, top_i = decoder_output.topk(1)
-            # detach from history as input
             decoder_input = top_i.squeeze().detach()
-            loss = torch.sum(loss, criterion(decoder_output, target_tensor[di]))
+            loss += criterion(decoder_output, target_tensor[di])
             if decoder_input.item() == EOS_token:
                 break
     loss.backward()
@@ -112,11 +92,27 @@ def train_iters(encoder, decoder, n_iters, print_every=1000, plot_every=100, lea
 
 
 if __name__ == '__main__':
+    # 初始化数值
     hidden_size = 256
-    encoder1 = model.EncoderRNN(input_lang.n_words, hidden_size).to(model.device)
-    attn_decoder1 = model.AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(model.device)
+    batch_size = 128
+    max_length = 128
 
-    train_iters(encoder1, attn_decoder1, 75000, print_every=5000)
+    logger.info("start init data")
+    dataset = data_util.SentenceDataSet(dir_path)
+    for i, x in enumerate(dataset):
+        print(x)
+        if i > 10:
+            break
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    logger.info("end init data")
+    for xt in data_loader:
+        print(xt)
+        break
+    encoder1 = model.EncoderRNN(dataset.input_lang.n_words, hidden_size).to(model.device)
+    attn_decoder1 = model.AttnDecoderRNN(hidden_size, dataset.output_lang.n_words, dropout_p=0.1).to(model.device)
+    logger.info("start train")
+
+    # train_iters(encoder1, attn_decoder1, 75000, print_every=50)
     # for i, pair in enumerate(sentence_pairs):
     #     input_tensor = tensor_from_sentence(input_lang, pair[0])
     #     target_tensor = tensor_from_sentence(output_lang, pair[1])
