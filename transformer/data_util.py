@@ -13,6 +13,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def batchify(data, bsz):
+    # 转为one hot
     data = TEXT.numericalize([data.examples[0].text])
     n_batch = data.size(0) // bsz
     data = data.narrow(0, 0, n_batch * bsz)
