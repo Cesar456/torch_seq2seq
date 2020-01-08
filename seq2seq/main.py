@@ -1,15 +1,15 @@
 import sys
 import os
 
-curPath = os.path.abspath(os.path.dirname(__file__))
-rootPath = os.path.split(curPath)[0]
-sys.path.append(rootPath)
+# curPath = os.path.abspath(os.path.dirname(__file__))
+# rootPath = os.path.split(curPath)[0]
+# sys.path.append(rootPath)
 
 import logging
-from seq2seq import model, data_util
+from ..seq2seq import model, data_util
+
 # import matplotlib.pyplot as plt
 # import matplotlib.ticker as ticker
-import torch
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     batch_size = 128
     max_length = 128
     epoch_num = 3
-    dir_path = os.path.join(curPath, "../data/couplet")
+    dir_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../data/couplet")
 
     logger.info("start init data")
     dataset = data_util.SentenceDataSet(dir_path)

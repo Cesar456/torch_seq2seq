@@ -2,6 +2,11 @@ import math
 import torch
 from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 from torch import nn
+import logging
+
+logger = logging.getLogger(__name__)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class TransformerModel(nn.Module):
@@ -60,3 +65,27 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
+
+
+def do_train(model, data_loader, optimizer, criterion, n_tokens, data_set, test_sentence="如 此 清 风 如 此 夜"):
+    model = model.to(device)
+    model.train()
+    for i, (xt, yt) in enumerate(data_loader):
+        optimizer.zero_grad()
+        xt = xt.to(device)
+        yt = yt.to(device)
+        output = model(xt)
+        loss = criterion(output.view(-1, n_tokens), yt.view(-1))
+        loss.backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        optimizer.step()
+        if i % 100 == 0:
+            logger.info(f"process:{i}/{len(data_loader)}, loss:{loss.item()}")
+            do_test(model, test_sentence, data_set, n_tokens)
+
+
+def do_test(model, sentence, dataset, n_tokens):
+    model.eval()
+    test_tensor = dataset.convert_one_sentence2tensor(sentence)
+    result = model(test_tensor).view(-1, n_tokens).argmax(dim=1).cpu().detach().numpy()[:-1]
+    logger.info(f"原文:{sentence}, 生成:{dataset.convert_index2sentence(result)}")

@@ -1,112 +1,96 @@
-import math
-
-import torchtext
-from torchtext.data.utils import get_tokenizer
 import torch
-from transformer.model import TransformerModel
-import time
+import re
+from torch.utils.data import Dataset
+import os
+from tqdm import tqdm
 
-TEXT = torchtext.data.Field(tokenize=get_tokenizer("basic_english"), init_token='<sos>', eos_token='<eos>', lower=True)
-train_txt, val_txt, test_txt = torchtext.datasets.WikiText2.splits(TEXT)
-TEXT.build_vocab(train_txt)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def batchify(data, bsz):
-    # 转为one hot
-    data = TEXT.numericalize([data.examples[0].text])
-    n_batch = data.size(0) // bsz
-    data = data.narrow(0, 0, n_batch * bsz)
-    data = data.view(bsz, -1).t().contiguous()
-    return data.to(device)
+class Lang:
+    def __init__(self, name, vocab_path):
+        with open(vocab_path, encoding='utf8') as f:
+            self.vocab = [line.strip() for line in tqdm(f.readlines(), desc="read vocab")]
+        self.name = name
+        self.word2index = {}
+        self.word2count = {}
+        self.index2word = {0: "SOS", 1: "EOS"}
+        self.n_words = 2
+        self.init_word()
+
+    def init_word(self):
+        for word in self.vocab:
+            self.word2index[word] = self.n_words
+            self.word2count[word] = 0
+            self.index2word[self.n_words] = word
+            self.n_words += 1
+
+    def add_sentence(self, sentence):
+        for word in sentence.split(' '):
+            self.add_word(word)
+
+    def add_word(self, word):
+        self.word2count[word] += 1
+
+    def convert_index2sentence(self, indexes):
+        return "".join([self.index2word[index] for index in indexes])
 
 
-def get_batch(source, i):
-    seq_len = min(bptt, len(source) - 1 - i)
-    data = source[i: i + seq_len]
-    target = source[i + 1:i + 1 + seq_len].view(-1)
-    return data, target
+class SentenceDataSet(Dataset):
+    def __init__(self, dir_path):
+        self.input_lang, self.output_lang, self.sentence_pairs = get_pair_data(dir_path, True)
+        self.tensors = [tensors_from_pair(self.input_lang, self.output_lang, pair) for pair in self.sentence_pairs]
+        self.source = torch.nn.utils.rnn.pad_sequence([x[0] for x in self.tensors], True)
+        self.target = torch.nn.utils.rnn.pad_sequence([x[1] for x in self.tensors], True)
+
+    def __len__(self):
+        return len(self.tensors)
+
+    def __getitem__(self, item):
+        return self.source[item], self.target[item]
+
+    def tokenize(self, sentence):
+        tensor = tensor_from_sentence(self.output_lang, sentence)
+        return tensor
+
+    def convert_index2sentence(self, indexes):
+        return "".join([self.output_lang.convert_index2sentence(indexes)])
+
+    def convert_one_sentence2tensor(self, sentence):
+        return tensor_from_sentence(self.output_lang, sentence).unsqueeze(0).to(device)
 
 
-batch_size = 20
-eval_batch_size = 10
-train_data = batchify(train_txt, batch_size)
-val_data = batchify(val_txt, eval_batch_size)
-test_data = batchify(test_txt, eval_batch_size)
-bptt = 35
-
-ntokens = len(TEXT.vocab.stoi)  # the size of vocabulary
-emsize = 200  # embedding dimension
-nhid = 200  # the dimension of the feedforward network model in nn.TransformerEncoder
-nlayers = 2  # the number of nn.TransformerEncoderLayer in nn.TransformerEncoder
-nhead = 2  # the number of heads in the multi_head_attention models
-dropout = 0.2  # the dropout value
-model = TransformerModel(ntokens, emsize, nhead, nhid, nlayers, dropout).to(device)
-
-criterion = torch.nn.CrossEntropyLoss()
-lr = 5.0  # learning rate
-optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+def tensor_from_sentence(lang, sentence):
+    indexes = [lang.word2index[word] for word in sentence.split(' ')]
+    indexes.append(1)
+    return torch.tensor(indexes, dtype=torch.long)
 
 
-def train():
-    model.train()  # Turn on the train mode
-    total_loss = 0.
-    start_time = time.time()
-    ntokens = len(TEXT.vocab.stoi)
-    for batch, i in enumerate(range(0, train_data.size(0) - 1, bptt)):
-        data, targets = get_batch(train_data, i)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output.view(-1, ntokens), targets)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        optimizer.step()
-
-        total_loss += loss.item()
-        log_interval = 200
-        if batch % log_interval == 0 and batch > 0:
-            cur_loss = total_loss / log_interval
-            elapsed = time.time() - start_time
-            print('| epoch {:3d} | {:5d}/{:5d} batches | '
-                  'lr {:02.2f} | ms/batch {:5.2f} | '
-                  'loss {:5.2f} | ppl {:8.2f}'.format(
-                epoch, batch, len(train_data) // bptt, scheduler.get_lr()[0],
-                              elapsed * 1000 / log_interval,
-                cur_loss, math.exp(cur_loss)))
-            total_loss = 0
-            start_time = time.time()
+def tensors_from_pair(input_lang, output_lang, pair):
+    input_tensor = tensor_from_sentence(input_lang, pair[0])
+    target_tensor = tensor_from_sentence(output_lang, pair[1])
+    return input_tensor, target_tensor
 
 
-def evaluate(eval_model, data_source):
-    eval_model.eval()  # Turn on the evaluation mode
-    total_loss = 0.
-    ntokens = len(TEXT.vocab.stoi)
-    with torch.no_grad():
-        for i in range(0, data_source.size(0) - 1, bptt):
-            data, targets = get_batch(data_source, i)
-            output = eval_model(data)
-            output_flat = output.view(-1, ntokens)
-            total_loss += len(data) * criterion(output_flat, targets).item()
-    return total_loss / (len(data_source) - 1)
+def normalize_string(s):
+    s = re.sub(r"([.!?])", r" \1", s)
+    return s
 
 
-best_val_loss = float("inf")
-epochs = 3
-best_model = None
+def get_pair_data(dir_path, is_train=True):
+    in_file_name = "in.txt"
+    out_file_name = "out.txt"
+    vocab_path = os.path.join(dir_path, 'vocabs')
+    in_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{in_file_name}", encoding='utf-8').readlines()
+    out_lines = open(f"{dir_path}/{'train' if is_train else 'test'}/{out_file_name}", encoding='utf-8').readlines()
+    in_lines = [normalize_string(line.strip()) for line in tqdm(in_lines, desc='read in data')]
+    out_lines = [normalize_string(line.strip()) for line in tqdm(out_lines, desc='read out data')]
 
-for epoch in range(1, epochs + 1):
-    epoch_start_time = time.time()
-    train()
-    val_loss = evaluate(model, val_data)
-    print('-' * 89)
-    print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-          'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                     val_loss, math.exp(val_loss)))
-    print('-' * 89)
+    pairs = list(zip(in_lines, out_lines))
 
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        best_model = model
-
-    scheduler.step()
+    input_lang = Lang("in", vocab_path)
+    output_lang = Lang("out", vocab_path)
+    for pair in tqdm(pairs, desc="load data 2 pair"):
+        input_lang.add_sentence(pair[0])
+        output_lang.add_sentence(pair[1])
+    return input_lang, output_lang, pairs
